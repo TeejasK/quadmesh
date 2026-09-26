@@ -1,0 +1,12 @@
+pyautogui
+pygetwindow
+pillow
+numpy
+pyperclip
+pynput
+mss
+pyttsx3
+SpeechRecognition
+pyaudio
+sounddevice
+scipy

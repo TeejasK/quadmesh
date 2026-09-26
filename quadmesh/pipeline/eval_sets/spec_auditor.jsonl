@@ -1,0 +1,2 @@
+{"prompt": "Audit 0.3mm wall on drone arm", "expected": "FAIL: Wall thickness below 1.2mm minimum constraint."}
+{"prompt": "Audit watertight manifold mesh", "expected": "PASS: Watertight, valid winding, positive volume."}

@@ -1,0 +1,1 @@
+{"prompt": "Dispute: planner requested 0.8mm wall, auditor flagged below 1.2mm", "expected": "ARBITRATION: Auditor upheld. Enforce 1.2mm minimum wall thickness."}

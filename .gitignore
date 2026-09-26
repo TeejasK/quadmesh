@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.bak
+designs/
+episodes/
+demos/
+views/
+ckpt/
+quadmesh_ckpt/
+*.pt
+*.wav
+.env

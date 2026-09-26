@@ -1,0 +1,2 @@
+{"prompt": "Generate 2D sketch with circle and arc", "expected": "DISPATCH: blender_bridge.sketch_2d"}
+{"prompt": "Run structural finite element analysis", "expected": "DISPATCH: blender_bridge.run_fea"}

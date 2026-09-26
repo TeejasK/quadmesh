@@ -1,0 +1,41 @@
+# Quadmesh - command list (see README.md for explanations). PowerShell.
+# ---- 1. environment
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pip install -r requirements-local-agent.txt
+python tests\run_offline_tests.py
+# ---- 2. accounts (create a NEW token; never commit it)
+huggingface-cli login
+modal setup
+modal secret create huggingface-secret HF_TOKEN=<YOUR-NEW-TOKEN>
+# ---- 3. train the SHARED GENERATIVE TEXT MODEL (8 roles, one trunk). See SHARED_MODEL.md for cost/time.
+#      Delete any tokenizer built before v2 first (token ids changed):  modal volume rm quadmesh-ckpts /tokenizer/quadmesh-bpe.json
+modal run modal_app.py::build_tokenizer
+modal run modal_app.py::shared_review_queue                      # candidate rows for risk/abuse -> /vol/data/review_queue.jsonl
+modal volume get quadmesh-ckpts /data/review_queue.jsonl review_queue.jsonl
+python -m quadmesh.pipeline.review_queue review_queue.jsonl      # approve/edit rows by hand (need >= 500 per role)
+modal volume put quadmesh-ckpts review_queue.jsonl /data/review_queue.jsonl --force
+modal run --detach modal_app.py::shared_pretrain --tier 500M --budget 4x     # chinchilla | 4x | full (needs --confirm-full)
+modal run --detach modal_app.py::shared_sft --tier 500M --tokens 2000000000
+modal run modal_app.py::shared_eval --tier 500M --n 100          # generation-based eval + the 20-prompt benchmark
+# (re-run any of the three long commands after a preemption - they resume from the last checkpoint)
+# ---- 3b. separate models that stay separate (different input modality)
+modal volume put quadmesh-ckpts D:\demos /demos
+modal run modal_app.py::train_vla --tier 500M --steps 20000
+modal run modal_app.py::train_io --tier 500M --which asr         # asr / tts as before
+# ---- LEGACY per-role path (superseded by the shared model; kept for the image-chat model and old checkpoints)
+# modal run modal_app.py::plan --tier 500M ; modal run modal_app.py::train_all --tier 500M
+# ---- 4. download
+modal volume get quadmesh-ckpts /Quadmesh-500M D:\quadmesh_ckpt\Quadmesh-500M
+modal volume get quadmesh-ckpts /tokenizer D:\quadmesh_ckpt\tokenizer
+$env:QUADMESH_CKPT_ROOT="D:\quadmesh_ckpt"; $env:QUADMESH_TIER="500M"; $env:QUADMESH_DEVICE="auto"
+# ---- 5. run (Blender opens itself)
+python -m quadmesh.agent.chat_agent --desk --full-control --voice --speak
+# ---- 5b. OR: web app (Claude-style UI, text/voice/image/3D-file in, opens Blender, trace panel, speaks back)
+pip install uvicorn python-multipart
+python -m quadmesh.webapp.server                       # then open http://127.0.0.1:8420
+python -m quadmesh.agent.autopilot "Make a 60x40x5 mm plate with 4 corner holes of 4.2 mm diameter, 8 mm from the edges" --tier 500M
+python -m quadmesh.agent.autopilot --assembly "make a hexadrone, 1.5 kg, industrial grade" --tier 500M
+# ---- 6. deploy
+modal deploy modal_app.py

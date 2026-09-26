@@ -1,0 +1,14 @@
+torch>=2.5.1
+datasets==3.2.0
+huggingface_hub==0.27.0
+tokenizers==0.21.0
+torchaudio>=2.5.1
+soundfile
+librosa
+pillow
+numpy
+trimesh
+numpy-stl
+modal
+
+cadquery   # STEP / B-Rep support (quadmesh/step_io.py); large install

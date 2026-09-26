@@ -1,0 +1,4 @@
+{"prompt": "Plan drone arm", "expected": "{\"op\": \"new_sketch\", \"plane\": \"XY\"}"}
+{"prompt": "Create bearing bracket", "expected": "{\"op\": \"extrude\", \"distance\": 15.0}"}
+{"prompt": "Mount motor to plate", "expected": "{\"op\": \"circle\", \"center\": [0.0, 0.0], \"radius\": 8.0}"}
+{"prompt": "Design hexacopter chassis", "expected": "{\"op\": \"fillet\", \"radius\": 2.0}"}

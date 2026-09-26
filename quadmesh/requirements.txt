@@ -1,0 +1,35 @@
+# Pinned to real current PyPI versions as of 2026-09-23 (checked via `pip index versions`, not guessed).
+# "latest"/unpinned installs are how a working setup silently breaks weeks later - pin, then bump
+# deliberately and re-run tests/run_offline_tests.py before trusting the bump.
+#
+# Split into CORE (needed for the text/planning/training pipeline to import at all) and OPTIONAL (needed
+# for specific features - CAD export, screen/mouse control, mic input, video-frame extraction for VideoCAD).
+# Optional ones are still pinned here, but check_dependencies.py (same directory) is what actually enforces
+# "fail loudly, don't silently degrade" at install/startup time - a requirements.txt alone doesn't do that,
+# pip only tells you a package is missing when something finally tries to import it, often deep into a run.
+
+# --- core ---
+torch==2.14.0
+numpy==2.5.3
+pillow==12.3.0
+datasets==5.0.1
+tokenizers==0.23.2
+requests==2.34.2
+
+# --- optional: text-to-STEP export (step_io.py) ---
+cadquery==2.8.0
+
+# --- optional: real desktop mouse/keyboard control (agent/desk.py, agent/desktop.py) ---
+pyautogui==0.9.54
+
+# --- optional: pretrained ASR fallback (agent/speech.py, before your own model is trained/promoted) ---
+SpeechRecognition==3.17.0
+
+# --- optional: VideoCAD Dataverse fallback frame extraction (data/vla_data.py) ---
+opencv-python==5.0.0.93
+
+# --- optional: local HTTP surface (agent/app.py), if used ---
+fastapi==0.141.1
+uvicorn==0.32.0
+python-multipart==0.0.12
+pydantic==2.13.5

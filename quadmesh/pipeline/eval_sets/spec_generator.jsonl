@@ -1,0 +1,3 @@
+{"prompt": "Generate a hexacopter drone frame arm", "expected": "sketch(plane='XY').circle(10).extrude(50)"}
+{"prompt": "Design a bracket mounting a 12mm bearing", "expected": "box(30, 30, 15).hole(12)"}
+{"prompt": "Model a snap-fit enclosure lid", "expected": "rect(60, 40).extrude(2).lip(1.5)"}
