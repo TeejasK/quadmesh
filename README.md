@@ -225,3 +225,5 @@ serves the tier in `modal_app.py` (`QUADMESH_SERVE_TIER`, default 500M) on an L4
 | STEP tools raise `ImportError` | `pip install cadquery` (large; only needed for `quadmesh/step_io.py`) |
 | "FAILED ... do not print" | read the last problem line; the design was NOT marked printable |
 | `torch` install is huge | use the CPU wheel: `pip install torch --index-url https://download.pytorch.org/whl/cpu` |
+#   q u a d m e s h  
+ 
