@@ -1,230 +1,1235 @@
-# Quadmesh - from-scratch CAD + chat + voice agent (planner + verifier + Blender control + VLA)
+# Quadmesh
 
-Everything here is trained from random weights. Quadmesh is a **planner + verifier** system with a conversational front
-end: a chat model understands text, voice, images and 3D files and calls tools; small language models write verified CAD
-operations or call the mesh-geometry engine directly; a checker verifies them; Blender (which Quadmesh opens itself) builds
-them; a printability gate checks the exported STL/STEP.
+## Technical Architecture and Implementation
 
-**Read first - what it can and cannot do**
-- Talks: text, your voice (own ASR), a photo/drawing, or an attached STL/STEP file - in one conversation. Falls back to a
-  fixed-rule assistant + a verified knowledge base until `quadmesh.train.chat_train` has been run.
-- Builds: 10,000+ catalog part families, free-form CSG with explicit coordinates, curved/organic shapes (lathe/loft/sweep),
-  gears, threads (bolts + nuts), 3D text, vases/pipes/springs, four-bar linkages, a hexacopter frame, a robot arm with a
-  stand, and STEP/B-Rep (via CadQuery) as well as STL. "Printable" means it passed geometry/printability rules - it does
-  NOT mean strong or certified (`quadmesh/strength.py` is hand-calculation with placeholder material numbers). Do the first
-  real print supervised.
-- Photo -> 3D is a GUESS: symmetric upright objects are spun into a solid of revolution, everything else is inflated from
-  its outline. The hidden sides and depth are invented - check before printing.
-- Controls the real keyboard and mouse. `--full-control` unlocks every key/hotkey and free mouse strokes (drag, sculpt,
-  orbit) - not just boxes/cylinders/spheres - for driving Blender's whole UI. The screen-corner fail-safe always stays on.
-  Quadmesh starts Blender itself (`quadmesh/agent/launch.py`); you no longer need to open it by hand.
-- Speaks with its OWN trained voice (LJSpeech is a single FEMALE speaker, so training on it gives a from-scratch female
-  voice) via a Griffin-Lim vocoder - no extra network to train, playable the moment TTS v2 finishes. Falls back to your OS
-  voice until then.
-- Hears with its own ASR, sized larger in this build specifically to make fewer mistakes; it is still a small from-scratch
-  model and will make some errors - it repeats back what it heard before acting.
-- Untested by me: everything needing torch, a GPU, Modal, a real Blender, or a real microphone/speakers.
-  `python tests/run_offline_tests.py` covers the pure-Python parts (20 checks; the STEP check skips itself if `cadquery`
-  is not installed).
+Quadmesh is a from-scratch CAD generation and computer-use system built around a **planner → execution → verification → repair** architecture.
 
-## File structure
+The system combines:
 
-```
-quadmesh_project/
-├── docs/
-│   └── DATASETS.md   - verified datasets and what each is for
-├── quadmesh/
-│   ├── agent/
-│   │   ├── __init__.py
-│   │   ├── actions.py   - action language + safety filter (+ full-control mode)
-│   │   ├── app.py   - desktop app (buttons: Autopilot, Desk mode, Image -> solid)
-│   │   ├── assistant.py   - fixed-rule fallback: move, 360 view, questions, voice
-│   │   ├── autopilot.py   - plan -> build -> check -> repair loop; assemblies; --desk/--gui; opens Blender itself
-│   │   ├── blender_bridge.py   - RUN INSIDE BLENDER: 160 ops + socket server
-│   │   ├── blender_client.py   - socket client
-│   │   ├── chat_agent.py   - the chat agent: text/voice/image/3D-file in, tool calls + own voice out
-│   │   ├── desk.py   - real keyboard + mouse controller (+ 360 turntable + mouse strokes)
-│   │   ├── desktop.py   - low-level pyautogui helpers
-│   │   ├── episode.py   - unlimited-length verified step loop
-│   │   ├── gui_recipes.py   - shapes via Shift+A/S/G/F2 + drag/grab/rotate/sculpt mouse recipes
-│   │   ├── image3d.py   - drawing / silhouette -> printable solid
-│   │   ├── launch.py   - finds and starts Blender itself - you never open it by hand
-│   │   ├── loop.py   - step runner with screenshots
-│   │   ├── observe.py   - scene report after a run
-│   │   ├── planner.py   - planner used by the app (rules + trained model)
-│   │   ├── planner_model.py   - loads any role/tier on CPU/GPU, KV-cached generation
-│   │   ├── printability.py   - printability gate (Blender report + STL file)
-│   │   ├── record_demo.py   - records real demonstrations
-│   │   ├── repl.py   - text REPL
-│   │   ├── speech.py   - microphone -> text (ASR)
-│   │   ├── visible_ops.py   - Blender keyboard shortcuts for a few ops
-│   │   └── vla_agent.py   - runs the VLA on your desktop
-│   ├── data/
-│   │   ├── __init__.py
-│   │   ├── streaming.py   - streaming loaders + role routing
-│   │   ├── tokenizer.py   - 32k BPE tokenizer
-│   │   ├── vision.py   - screenshot patching for vision roles
-│   │   └── vla_data.py   - REAL data for the VLA (GroundCUA + your recordings)
-│   ├── model/
-│   │   ├── __init__.py
-│   │   ├── audio.py   - ASR + TTS models (TTS has a stop head)
-│   │   ├── chat.py   - QuadmeshChat: multimodal (text+image) conversational model
-│   │   ├── lora.py   - LoRA adapters
-│   │   ├── transformer.py   - QuadmeshModel (RMSNorm, RoPE, SwiGLU) + vision model + KV cache
-│   │   └── vla.py   - QuadmeshVLA: screenshot + text -> action
-│   ├── pipeline/
-│   │   ├── datasets/
-│   │   │   ├── __init__.py
-│   │   │   ├── engineering_gen.py   - 10,000+ part families + free-form CSG generator
-│   │   │   └── planner_sft_gen.py   - original simple plan generator
-│   │   ├── eval_sets/   (one eval set per role, .jsonl)
-│   │   ├── __init__.py
-│   │   ├── plan_checker.py   - plan simulator + checker (52 ops) = the verifier
-│   │   ├── stage3_selfgen.py   - stage 3 self-generation (real grader)
-│   │   ├── stage4_preference.py
-│   │   ├── stage5_calibration.py
-│   │   ├── stage6_redteam.py
-│   │   ├── stage7_eval.py
-│   │   └── stage8_shadow.py
-│   ├── train/
-│   │   ├── __init__.py
-│   │   ├── chat_train.py   - chat model training (tool-use + knowledge + a little general text)
-│   │   ├── io_train.py   - ASR training
-│   │   ├── loop.py   - training loop (no tier branches)
-│   │   ├── tts_train2.py   - TTS v2 training: batched, stop-token loss, guided attention
-│   │   └── vla_train.py   - VLA training stage
-│   ├── verification/
-│   │   ├── __init__.py
-│   │   └── stack.py   - verification skeleton (FEA etc. not implemented)
-│   ├── __init__.py
-│   ├── assemblies.py   - hexacopter + robot arm (with stand) from parameters
-│   ├── chat_data.py   - chat model training data + tool-call parser
-│   ├── chat_kb.py   - verified facts the assistant can answer from
-│   ├── config.py   - tier hyperparameters (100M...70B)
-│   ├── geometry3d.py   - curves/lofts/sweeps/threads/gears/text/inflation mesh generators (numpy)
-│   ├── mechanisms.py   - gear pairs + four-bar linkage sizing and motion analysis
-│   ├── mesh_tools.py   - validated front door for every shape generator + printability gate
-│   ├── photo3d.py   - photo -> 3D guess (lathe or inflate from the silhouette)
-│   ├── role_shapes.py   - per-role model sizes (NOT an equal split)
-│   ├── serve.py   - FastAPI service deployed by `modal deploy`
-│   ├── spec_gen_data.py   - Spec Generator training data + safe parser
-│   ├── step_io.py   - STEP / B-Rep via CadQuery: plan -> STEP, STEP -> mesh
-│   ├── strength.py   - materials + hand-calculation strength checks
-│   ├── tts_style.py   - pitch-shift / EQ speaking style
-│   └── tts_synth.py   - Griffin-Lim vocoder: mel -> wav (no extra training)
-├── tests/
-│   └── run_offline_tests.py   - 20 offline checks (no GPU/Blender/torch)
-├── README.md   - this file
-├── check_kv.py   - proves the KV cache gives identical output
-├── check_vla.py   - smoke test of the VLA model
-├── commands.txt   - copy-paste command list
-├── eval_planner.py   - compare tiers with real numbers
-├── modal_app.py   - Modal entry points: train, stages 3-8, VLA, chat, TTS v2, deploy (`web`)
-├── requirements-local-agent.txt   - desktop-agent dependencies (mouse, keyboard, voice, audio playback)
-└── requirements.txt   - cloud + training dependencies
+* Multimodal conversational understanding
+* CAD planning
+* Parametric geometry generation
+* Mesh generation
+* STEP / B-Rep generation
+* Blender computer control
+* Vision-Language-Action (VLA)
+* Geometry verification
+* Printability verification
+* ASR and TTS
+* Model training and evaluation pipelines
+
+The models are trained from random initialization rather than relying on a pretrained foundation model.
+
+---
+
+# 1. System Architecture
+
+```text
+                     ┌─────────────────────────┐
+                     │       User Input        │
+                     │                         │
+                     │ Text / Voice / Image    │
+                     │ STL / STEP / 3D File    │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │    Quadmesh Chat Agent  │
+                     │                         │
+                     │ Multimodal Understanding│
+                     │ Tool Selection          │
+                     │ Tool Calling             │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │         Planner         │
+                     │                         │
+                     │ Natural Language        │
+                     │        ↓                │
+                     │ Verified CAD Operations │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │      Plan Checker       │
+                     │                         │
+                     │ Operation Validation    │
+                     │ Constraint Checking     │
+                     │ Simulation              │
+                     └────────────┬────────────┘
+                                  │
+                         ┌────────┴────────┐
+                         │                 │
+                       VALID            INVALID
+                         │                 │
+                         ▼                 ▼
+                ┌────────────────┐   ┌──────────────┐
+                │ Geometry Engine│   │    Repair    │
+                │                │   │    Loop      │
+                │ CSG            │   └──────┬───────┘
+                │ Curves         │          │
+                │ Loft/Sweep     │          │
+                │ Gears/Threads  │          │
+                │ Assemblies     │          │
+                └───────┬────────┘          │
+                        │                   │
+                        └────────◄──────────┘
+                                │
+                                ▼
+                     ┌─────────────────────────┐
+                     │     CAD / Mesh Layer    │
+                     │                         │
+                     │ NumPy Geometry          │
+                     │ Blender                 │
+                     │ CadQuery                │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │ Verification Stack      │
+                     │                         │
+                     │ Geometry Checks         │
+                     │ Printability Checks     │
+                     │ STL Validation           │
+                     │ STEP Validation          │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │       Final Output      │
+                     │                         │
+                     │ STL / STEP / B-Rep      │
+                     └─────────────────────────┘
 ```
 
-## 1. Environment (Windows PowerShell)
+---
 
-```powershell
-cd D:\project\quadmesh
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-pip install -r requirements-local-agent.txt
-python tests\run_offline_tests.py
-python check_kv.py
-python check_vla.py
-python -m quadmesh.role_shapes
+# 2. Core Architecture
+
+The core Quadmesh pipeline is:
+
+```text
+Input
+  ↓
+Multimodal Understanding
+  ↓
+Planning
+  ↓
+Operation Generation
+  ↓
+Plan Verification
+  ↓
+Geometry Execution
+  ↓
+Geometry Verification
+  ↓
+Printability Verification
+  ↓
+Export
 ```
 
-## 2. Accounts and secrets
+Failed operations can enter the repair loop:
 
-```powershell
-huggingface-cli login
-modal setup
-modal secret create huggingface-secret HF_TOKEN=<YOUR-NEW-TOKEN>
-```
-Never paste a token into a file that gets zipped or shared.
-
-## 3. Train on Modal (GPU in the cloud)
-
-```powershell
-modal run modal_app.py::build_tokenizer
-modal run modal_app.py::plan --tier 500M
-modal run modal_app.py::roles --tier 500M
-modal run modal_app.py::train_all --tier 500M
-```
-Compare tiers with numbers: `python eval_planner.py --tier 500M --n 200` and `--n 300 --spec`.
-
-Real data for the VLA:
-```powershell
-python -m quadmesh.data.vla_data --list-apps
-python -m quadmesh.data.vla_data --inspect
-modal volume put quadmesh-ckpts D:\demos /demos
-modal run modal_app.py::train_vla --tier 500M --steps 20000
+```text
+Plan
+  ↓
+Check
+  ↓
+FAIL
+  ↓
+Repair
+  ↓
+Re-plan
+  ↓
+Check
+  ↓
+PASS
 ```
 
-Chat model and improved TTS (add train_chat / train_tts2 Modal functions per the docstrings in
-quadmesh/train/chat_train.py and quadmesh/train/tts_train2.py), then:
-```powershell
-modal run modal_app.py::train_chat --tier 500M --steps 30000
-modal run modal_app.py::train_tts2 --tier 500M --steps 30000
+This separates **generation** from **verification** rather than assuming that a generated CAD operation is automatically correct.
+
+---
+
+# 3. Model Architecture
+
+## 3.1 Quadmesh Transformer
+
+The primary transformer implementation is located in:
+
+```text
+quadmesh/model/transformer.py
 ```
 
-## 4. Bring the checkpoints home
+The model contains:
 
-```powershell
-modal volume get quadmesh-ckpts /Quadmesh-500M D:\quadmesh_ckpt\Quadmesh-500M
-modal volume get quadmesh-ckpts /tokenizer D:\quadmesh_ckpt\tokenizer
-$env:QUADMESH_CKPT_ROOT = "D:\quadmesh_ckpt"
-$env:QUADMESH_TIER      = "500M"
-$env:QUADMESH_DEVICE    = "auto"
+* RMSNorm
+* Rotary Positional Embeddings (RoPE)
+* SwiGLU
+* Transformer blocks
+* KV cache
+* Vision model components
+
+The model configuration supports multiple parameter tiers through:
+
+```text
+quadmesh/config.py
 ```
 
-## 5. Talk to Quadmesh (Blender opens itself)
+The role-specific model configuration is handled through:
 
-```powershell
-python -m quadmesh.agent.chat_agent --desk --voice --speak
-python -m quadmesh.agent.chat_agent --desk --full-control --voice --speak
-python -m quadmesh.agent.chat_agent --image bracket.png
-python -m quadmesh.agent.chat_agent --file existing_part.stl
-python -m quadmesh.agent.app
-python -m quadmesh.agent.autopilot "Make a 60x40x5 mm plate with 4 corner holes of 4.2 mm diameter, 8 mm from the edges" --tier 500M
-python -m quadmesh.agent.autopilot --assembly "make a hexadrone, 1.5 kg, industrial grade, in PETG" --tier 500M
-python -m quadmesh.agent.printability part.stl --bed 220 220 250
+```text
+quadmesh/role_shapes.py
 ```
-Record real demonstrations for the VLA:
-```powershell
-python -m quadmesh.agent.record_demo --task "add a box 60x40x5 mm and name it body" --out D:\demos
-python -m quadmesh.agent.vla_agent "add a cube" --dry-run
+
+The architecture does not require every role to use the same model size.
+
+---
+
+# 4. Multimodal Chat Model
+
+Implementation:
+
+```text
+quadmesh/model/chat.py
 ```
-Every design writes an STL (and, on request, a STEP file) to `designs\` and stops with "do not print" if any check fails.
 
-## 6. Deploy
+The chat model is designed to process:
 
-```powershell
-modal deploy modal_app.py
-curl https://<workspace>--quadmesh-web.modal.run/health
-modal app stop quadmesh
+```text
+Text
+Image
+3D File
+Voice → ASR → Text
 ```
-The deployed service is the risk/safety gate (`/generate`). Blender, mouse, keyboard and voice always run locally. It
-serves the tier in `modal_app.py` (`QUADMESH_SERVE_TIER`, default 500M) on an L4 GPU with `min_containers=0` (no idle bill).
 
-## 7. Troubleshooting
+The conversational model performs:
 
-| Symptom | Fix |
-|---|---|
-| `no trained planner/chat/tts at ...` | run section 3, then section 4; check `QUADMESH_CKPT_ROOT` and the tier folder name |
-| `size mismatch` when loading | checkpoint was trained with old shapes - retrain that role |
-| GroundCUA warning: `TRAINING ON SYNTHETIC DATA` | real data unreachable: check `HF_TOKEN`, run `--inspect` |
-| "Blender could not be started" | run `python -m quadmesh.agent.launch --blender-path "C:\Path\To\blender.exe"` once |
-| Desk mode types nothing / wrong characters | Blender must be focused; US layout; install `pyperclip` for long lines |
-| No sound from Quadmesh's own voice | `pip install simpleaudio`; falls back to `pyttsx3` automatically |
-| STEP tools raise `ImportError` | `pip install cadquery` (large; only needed for `quadmesh/step_io.py`) |
-| "FAILED ... do not print" | read the last problem line; the design was NOT marked printable |
-| `torch` install is huge | use the CPU wheel: `pip install torch --index-url https://download.pytorch.org/whl/cpu` |
-#   q u a d m e s h  
- #   q u a d m e s h  
- 
+1. Input understanding
+2. Context processing
+3. Tool selection
+4. Tool-call generation
+5. CAD operation interaction
+6. Verification interaction
+7. Response generation
+
+The chat training pipeline is implemented in:
+
+```text
+quadmesh/train/chat_train.py
+```
+
+Training data and tool-call parsing are handled through:
+
+```text
+quadmesh/chat_data.py
+```
+
+Verified factual responses are stored through:
+
+```text
+quadmesh/chat_kb.py
+```
+
+---
+
+# 5. CAD Planning
+
+The planner converts engineering instructions into structured CAD operations.
+
+Implementation:
+
+```text
+quadmesh/agent/planner.py
+quadmesh/model/transformer.py
+```
+
+The planner can generate operations corresponding to:
+
+* Primitive creation
+* Boolean operations
+* Transformations
+* Dimensions
+* Holes
+* Curves
+* Lofting
+* Sweeping
+* Threads
+* Gears
+* Text
+* Mechanisms
+* Assemblies
+
+The generated plan is not directly treated as final geometry.
+
+It is passed through the plan checker.
+
+---
+
+# 6. Plan Verification
+
+Implementation:
+
+```text
+quadmesh/pipeline/plan_checker.py
+```
+
+The plan checker provides:
+
+* Plan simulation
+* Operation validation
+* Constraint checking
+* Invalid-operation detection
+
+The implementation currently covers:
+
+```text
+52 operations
+```
+
+The checker acts as the primary verifier between planning and geometry execution.
+
+```text
+Planner
+   ↓
+CAD Operation Plan
+   ↓
+Plan Simulator
+   ↓
+Checker
+   ↓
+Validated Plan
+```
+
+---
+
+# 7. Geometry Engine
+
+Core geometry implementation:
+
+```text
+quadmesh/geometry3d.py
+```
+
+The geometry engine uses NumPy-based implementations for geometry generation.
+
+Supported geometry categories include:
+
+### Primitive and CSG Geometry
+
+* Boxes
+* Cylinders
+* Spheres
+* Boolean operations
+* Explicit-coordinate CSG
+
+### Curve-Based Geometry
+
+* Curves
+* Lathe
+* Loft
+* Sweep
+
+### Mechanical Geometry
+
+* Gears
+* Threads
+* Bolts
+* Nuts
+* Four-bar mechanisms
+
+### Structural Geometry
+
+* Pipes
+* Springs
+* Vases
+* Hexacopter frames
+* Robot arms
+* Stands
+
+### Text Geometry
+
+3D text generation is supported through the geometry pipeline.
+
+---
+
+# 8. Mesh Processing
+
+Implementation:
+
+```text
+quadmesh/mesh_tools.py
+```
+
+`mesh_tools.py` acts as the validated entry point for generated geometry.
+
+The mesh layer connects:
+
+```text
+Geometry Generator
+        ↓
+Mesh Validation
+        ↓
+Printability Gate
+        ↓
+STL Output
+```
+
+---
+
+# 9. STEP / B-Rep Pipeline
+
+Implementation:
+
+```text
+quadmesh/step_io.py
+```
+
+CadQuery is used for STEP / B-Rep operations.
+
+The pipeline supports:
+
+```text
+CAD Plan
+   ↓
+CadQuery
+   ↓
+STEP / B-Rep
+```
+
+and:
+
+```text
+STEP
+   ↓
+Geometry Processing
+   ↓
+Mesh
+```
+
+STEP functionality is optional and requires CadQuery.
+
+---
+
+# 10. Blender Integration
+
+Blender integration consists of two primary components:
+
+```text
+quadmesh/agent/blender_bridge.py
+quadmesh/agent/blender_client.py
+```
+
+## Blender Bridge
+
+The bridge runs inside Blender.
+
+It provides:
+
+* Blender operation execution
+* Socket server
+* Approximately 160 supported operations
+
+## Blender Client
+
+The client runs externally and communicates with the Blender bridge.
+
+```text
+Quadmesh Agent
+      │
+      ▼
+Blender Client
+      │
+      │ Socket
+      ▼
+Blender Bridge
+      │
+      ▼
+Blender
+```
+
+---
+
+# 11. Computer-Use Layer
+
+Quadmesh can operate Blender through actual keyboard and mouse interaction.
+
+Relevant modules:
+
+```text
+quadmesh/agent/desk.py
+quadmesh/agent/desktop.py
+quadmesh/agent/gui_recipes.py
+quadmesh/agent/visible_ops.py
+```
+
+The computer-use layer supports:
+
+* Keyboard input
+* Keyboard shortcuts
+* Mouse movement
+* Mouse dragging
+* Rotation
+* Orbiting
+* Sculpting
+* GUI interaction
+
+The full-control mode is enabled with:
+
+```text
+--full-control
+```
+
+Blender is automatically launched through:
+
+```text
+quadmesh/agent/launch.py
+```
+
+---
+
+# 12. Vision-Language-Action System
+
+Implementation:
+
+```text
+quadmesh/model/vla.py
+quadmesh/train/vla_train.py
+quadmesh/agent/vla_agent.py
+```
+
+The VLA receives:
+
+```text
+Screenshot + Text Instruction
+```
+
+and produces:
+
+```text
+Desktop Action
+```
+
+Conceptually:
+
+```text
+┌──────────────┐
+│ Screenshot   │
+└──────┬───────┘
+       │
+       ├──────────────┐
+       │              │
+       ▼              ▼
+ Vision Features   Text Features
+       │              │
+       └──────┬───────┘
+              ▼
+          VLA Model
+              │
+              ▼
+        Action Prediction
+              │
+              ▼
+      Keyboard / Mouse
+              │
+              ▼
+           Blender
+```
+
+VLA training data is handled through:
+
+```text
+quadmesh/data/vla_data.py
+```
+
+Real demonstrations can be recorded through:
+
+```text
+quadmesh/agent/record_demo.py
+```
+
+---
+
+# 13. Vision Processing
+
+Vision-related processing is implemented through:
+
+```text
+quadmesh/data/vision.py
+```
+
+The vision pipeline processes screenshots and converts visual information into representations usable by the vision roles and VLA system.
+
+---
+
+# 14. Image-to-3D Pipeline
+
+Implementation:
+
+```text
+quadmesh/agent/image3d.py
+quadmesh/photo3d.py
+```
+
+The current image-to-3D system follows two primary approaches.
+
+### Symmetric Objects
+
+For symmetric upright objects:
+
+```text
+Image
+ ↓
+Silhouette
+ ↓
+Profile
+ ↓
+Solid of Revolution
+```
+
+### General Objects
+
+For other objects:
+
+```text
+Image
+ ↓
+Outline
+ ↓
+Silhouette Representation
+ ↓
+Inflated Geometry
+```
+
+The depth and hidden geometry are inferred rather than directly observed.
+
+---
+
+# 15. Mechanism Generation
+
+Implementation:
+
+```text
+quadmesh/mechanisms.py
+```
+
+Supported mechanism functionality includes:
+
+* Gear pairs
+* Four-bar linkages
+* Motion analysis
+* Parameter-based mechanism sizing
+
+---
+
+# 16. Assembly Generation
+
+Implementation:
+
+```text
+quadmesh/assemblies.py
+```
+
+The assembly system provides parameterized assemblies including:
+
+* Hexacopter
+* Robot arm
+* Robot-arm stand
+
+Assemblies are generated from structured parameters rather than manually constructed meshes.
+
+---
+
+# 17. Verification Architecture
+
+The verification framework is located at:
+
+```text
+quadmesh/verification/
+```
+
+Primary implementation:
+
+```text
+quadmesh/verification/stack.py
+```
+
+The verification architecture is designed to operate after geometry generation.
+
+Current verification includes:
+
+```text
+Plan Verification
+       ↓
+Geometry Verification
+       ↓
+Printability Verification
+       ↓
+STL / STEP Validation
+```
+
+Advanced engineering verification such as FEA is currently represented only as a verification skeleton and is not implemented.
+
+---
+
+# 18. Printability Verification
+
+Implementation:
+
+```text
+quadmesh/agent/printability.py
+```
+
+The printability gate combines:
+
+* Blender reports
+* STL inspection
+* Geometry rules
+* Printer-bed constraints
+
+The workflow is:
+
+```text
+Generated Geometry
+       ↓
+Geometry Checks
+       ↓
+Printability Checks
+       ↓
+PASS ───────────────► Export
+       │
+       ▼
+      FAIL
+       │
+       ▼
+   Do Not Print
+```
+
+A failed design is explicitly prevented from being marked as printable.
+
+---
+
+# 19. Strength Verification
+
+Implementation:
+
+```text
+quadmesh/strength.py
+```
+
+The current strength system uses hand calculations.
+
+It contains:
+
+* Material definitions
+* Strength calculations
+* Engineering checks
+
+However, the current implementation uses placeholder material values and does not provide certified mechanical analysis.
+
+Full FEA is not currently implemented.
+
+---
+
+# 20. Speech Architecture
+
+Quadmesh contains independent ASR and TTS components.
+
+Implementation:
+
+```text
+quadmesh/model/audio.py
+quadmesh/agent/speech.py
+```
+
+---
+
+## ASR
+
+The ASR pipeline is:
+
+```text
+Microphone
+    ↓
+Audio
+    ↓
+ASR Model
+    ↓
+Text
+    ↓
+Chat Agent
+```
+
+ASR training:
+
+```text
+quadmesh/train/io_train.py
+```
+
+The ASR model is trained from scratch.
+
+---
+
+## TTS
+
+TTS training:
+
+```text
+quadmesh/train/tts_train2.py
+```
+
+Synthesis:
+
+```text
+quadmesh/tts_synth.py
+```
+
+Voice styling:
+
+```text
+quadmesh/tts_style.py
+```
+
+The synthesis pipeline uses:
+
+```text
+Text
+ ↓
+Acoustic / Mel Representation
+ ↓
+Griffin-Lim
+ ↓
+Waveform
+```
+
+TTS v2 includes:
+
+* Batched training
+* Stop-token loss
+* Guided attention
+
+---
+
+# 21. Tokenization
+
+Implementation:
+
+```text
+quadmesh/data/tokenizer.py
+```
+
+Quadmesh uses a:
+
+```text
+32k BPE tokenizer
+```
+
+The tokenizer is generated through the training pipeline before model training.
+
+---
+
+# 22. Training Architecture
+
+The training system is located in:
+
+```text
+quadmesh/train/
+```
+
+Main components:
+
+```text
+chat_train.py
+io_train.py
+loop.py
+tts_train2.py
+vla_train.py
+```
+
+The overall training pipeline includes:
+
+```text
+Dataset
+   ↓
+Tokenizer
+   ↓
+Role-Specific Training
+   ↓
+Supervised Fine-Tuning
+   ↓
+Self-Generation
+   ↓
+Preference Training
+   ↓
+Calibration
+   ↓
+Red-Team Evaluation
+   ↓
+Evaluation
+   ↓
+Shadow Testing
+```
+
+---
+
+# 23. Training Pipeline Stages
+
+The pipeline contains multiple stages:
+
+```text
+Stage 3  → Self Generation
+Stage 4  → Preference Training
+Stage 5  → Calibration
+Stage 6  → Red-Team Evaluation
+Stage 7  → Evaluation
+Stage 8  → Shadow Testing
+```
+
+Implementation:
+
+```text
+quadmesh/pipeline/stage3_selfgen.py
+quadmesh/pipeline/stage4_preference.py
+quadmesh/pipeline/stage5_calibration.py
+quadmesh/pipeline/stage6_redteam.py
+quadmesh/pipeline/stage7_eval.py
+quadmesh/pipeline/stage8_shadow.py
+```
+
+---
+
+# 24. Dataset Generation
+
+Engineering data generation:
+
+```text
+quadmesh/pipeline/datasets/engineering_gen.py
+```
+
+The generator produces:
+
+* Part families
+* Free-form CSG examples
+* Engineering geometry examples
+
+Planner supervised fine-tuning data:
+
+```text
+quadmesh/pipeline/datasets/planner_sft_gen.py
+```
+
+---
+
+# 25. Role-Based Architecture
+
+Quadmesh does not require every model role to use an equal parameter count.
+
+Role-specific model sizing is defined through:
+
+```text
+quadmesh/role_shapes.py
+```
+
+The architecture can therefore allocate different model capacities to different tasks.
+
+Conceptually:
+
+```text
+                Quadmesh System
+                       │
+       ┌───────────────┼────────────────┐
+       │               │                │
+       ▼               ▼                ▼
+   Planner           Chat             VLA
+       │               │                │
+       ▼               ▼                ▼
+   CAD Roles       Language        Vision/Action
+       │               │                │
+       └───────────────┼────────────────┘
+                       ▼
+                  Verification
+```
+
+---
+
+# 26. KV Cache
+
+The transformer supports KV caching for autoregressive generation.
+
+Implementation:
+
+```text
+quadmesh/model/transformer.py
+quadmesh/model/planner_model.py
+```
+
+The KV cache allows previously computed attention keys and values to be reused during generation.
+
+A dedicated validation script is provided:
+
+```text
+check_kv.py
+```
+
+The purpose of the test is to verify that KV-cached generation produces the same output as the corresponding non-cached generation.
+
+---
+
+# 27. LoRA
+
+Implementation:
+
+```text
+quadmesh/model/lora.py
+```
+
+LoRA adapters are provided as a parameter-efficient adaptation mechanism for model training.
+
+The adapters can be used without modifying the complete base model parameter set.
+
+---
+
+# 28. Service Architecture
+
+The service implementation is:
+
+```text
+quadmesh/serve.py
+```
+
+The service is deployed through:
+
+```text
+modal_app.py
+```
+
+The architecture separates local computer interaction from the remote model service.
+
+```text
+                 Local Machine
+                      │
+       ┌──────────────┼──────────────┐
+       │              │              │
+       ▼              ▼              ▼
+    Blender        Keyboard        Mouse
+       │
+       └──────────────┬──────────────┘
+                      │
+                      ▼
+                Quadmesh Agent
+                      │
+                      ▼
+                Remote Service
+                      │
+                      ▼
+                    GPU
+```
+
+---
+
+# 29. Modal Training and Deployment
+
+Modal provides the remote GPU execution environment.
+
+The main entry point is:
+
+```text
+modal_app.py
+```
+
+It contains entry points for:
+
+* Tokenizer generation
+* Planner training
+* Role training
+* Full training
+* VLA training
+* Chat training
+* TTS v2 training
+* Pipeline stages
+* Deployment
+
+---
+
+# 30. End-to-End Technical Pipeline
+
+The complete system can be represented as:
+
+```text
+                         USER
+                           │
+                           ▼
+                ┌─────────────────────┐
+                │  Multimodal Input   │
+                │                     │
+                │ Text                │
+                │ Voice               │
+                │ Image               │
+                │ STL / STEP          │
+                └──────────┬──────────┘
+                           │
+                           ▼
+                ┌─────────────────────┐
+                │    Chat Model       │
+                │                     │
+                │ Understanding       │
+                │ Context             │
+                │ Tool Calling        │
+                └──────────┬──────────┘
+                           │
+                           ▼
+                ┌─────────────────────┐
+                │      Planner        │
+                │                     │
+                │ Natural Language    │
+                │        ↓            │
+                │ CAD Operations      │
+                └──────────┬──────────┘
+                           │
+                           ▼
+                ┌─────────────────────┐
+                │   Plan Checker      │
+                │                     │
+                │ Simulation          │
+                │ Constraints         │
+                │ Validation          │
+                └──────────┬──────────┘
+                           │
+                    ┌──────┴──────┐
+                    │             │
+                   PASS          FAIL
+                    │             │
+                    ▼             ▼
+             ┌────────────┐   ┌──────────┐
+             │  Geometry  │   │  Repair  │
+             │  Engine    │   │   Loop   │
+             └─────┬──────┘   └────┬─────┘
+                   │               │
+                   │               │
+                   └───────◄───────┘
+                           │
+                           ▼
+                ┌─────────────────────┐
+                │ Blender / CadQuery  │
+                │                     │
+                │ Mesh / B-Rep        │
+                └──────────┬──────────┘
+                           │
+                           ▼
+                ┌─────────────────────┐
+                │ Verification Stack  │
+                │                     │
+                │ Geometry            │
+                │ Printability        │
+                │ STL / STEP          │
+                └──────────┬──────────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │ STL / STEP  │
+                    └─────────────┘
+```
+
+---
+
+# 31. Technical Module Map
+
+```text
+quadmesh/
+│
+├── agent/
+│   ├── chat_agent.py       → Multimodal agent
+│   ├── planner.py          → Planning
+│   ├── autopilot.py        → Plan/build/check/repair
+│   ├── vla_agent.py        → VLA execution
+│   ├── desk.py             → Computer control
+│   ├── desktop.py          → Low-level GUI control
+│   ├── blender_client.py   → Blender client
+│   ├── blender_bridge.py   → Blender server
+│   ├── image3d.py          → Image → 3D
+│   └── printability.py     → Printability gate
+│
+├── model/
+│   ├── transformer.py      → Transformer architecture
+│   ├── chat.py             → Multimodal chat
+│   ├── vla.py              → Vision-Language-Action
+│   ├── audio.py            → ASR/TTS
+│   └── lora.py             → LoRA
+│
+├── data/
+│   ├── tokenizer.py        → 32k BPE
+│   ├── vision.py           → Vision processing
+│   ├── streaming.py        → Streaming datasets
+│   └── vla_data.py         → VLA data
+│
+├── pipeline/
+│   ├── datasets/           → Dataset generation
+│   ├── plan_checker.py     → Plan verification
+│   ├── stage3_selfgen.py   → Self-generation
+│   ├── stage4_preference.py
+│   ├── stage5_calibration.py
+│   ├── stage6_redteam.py
+│   ├── stage7_eval.py
+│   └── stage8_shadow.py
+│
+├── train/
+│   ├── chat_train.py       → Chat training
+│   ├── io_train.py         → ASR training
+│   ├── tts_train2.py       → TTS training
+│   └── vla_train.py        → VLA training
+│
+├── verification/
+│   └── stack.py            → Verification framework
+│
+├── geometry3d.py           → Geometry generation
+├── mechanisms.py           → Mechanisms
+├── assemblies.py           → Assemblies
+├── mesh_tools.py           → Mesh validation
+├── step_io.py              → STEP/B-Rep
+├── photo3d.py              → Photo → 3D
+├── strength.py             → Strength calculations
+├── config.py               → Model configuration
+└── serve.py                → Service API
+```
+
+---
+
+# 32. Technical Design Principle
+
+The central architectural principle of Quadmesh is:
+
+```text
+Generation ≠ Verification
+```
+
+The model is responsible for generating a proposed solution.
+
+The verification system independently checks the generated operations and geometry.
+
+Therefore:
+
+```text
+Natural Language
+      ↓
+Prediction
+      ↓
+Verification
+      ↓
+Execution
+      ↓
+Verification
+      ↓
+Export
+```
+
+rather than:
+
+```text
+Natural Language
+      ↓
+Prediction
+      ↓
+Direct Export
+```
+
+This architecture is intended to make CAD generation a **closed-loop verified process** rather than a single-shot generative process.
