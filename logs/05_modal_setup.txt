@@ -1,0 +1,13 @@
+[2026-09-27T20:34:44] PS D:\quadmesh-project\quadmesh_project> modal setup
+The web browser should have opened for you to authenticate and get an API 
+token.
+If it didn't, please copy this URL into your web browser manually:
+
+https://modal.com/token-flow/tf-58OOdjmiXVqpg0K6rCTT2Q
+
+Web authentication finished successfully!
+Token is connected to the kteejas21 workspace.
+Verifying token against https://api.modal.com,https://api.modal2.com
+Token verified successfully!
+Token written to C:\Users\kteej/.modal.toml in profile kteejas21.
+[2026-09-27T20:34:59] (exit code: 1)

@@ -49,7 +49,7 @@ image = (
         "numpy-stl",
         "fastapi[standard]",
     )
-    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1", "TOKENIZERS_PARALLELISM": "false", "PYTHONUNBUFFERED": "1"})
+    .env({"HF_HUB_ENABLE_HF_TRANSFER": "1", "TOKENIZERS_PARALLELISM": "false", "PYTHONUNBUFFERED": "1", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
     .add_local_python_source("quadmesh")
 )
 
@@ -724,42 +724,50 @@ def shared_eval_remote(tier: str, n: int = 100):
     return rep
 
 
-def _spawn(phase, tier, **kw):
-    """Starts the run and returns. Use `modal run --detach` so the app - and the self-spawned continuation slices -
+def _spawn(phase, tier, attach: bool = False, **kw):
+    """Starts the run and returns. Use `modal run --detach` or pass attach=False so the app - and the self-spawned continuation slices -
     keep running after your terminal closes. Progress: `modal app logs <app-id>`; metrics_<phase>.jsonl on the volume."""
+    if attach:
+        print(f"Running {phase} for {tier} attached to terminal with live streaming output...")
+        return shared_train_remote.remote(phase, tier, **kw)
     call = shared_train_remote.spawn(phase, tier, **kw)
     print(f"started {phase} for {tier}: call id {call.object_id}. It runs detached and re-spawns itself every <=23h until done.")
+    return call
 
 
 @app.local_entrypoint()
 def shared_review_queue(n_each: int = 1500):
     """Writes candidate risk/abuse rows to /vol/data/review_queue.jsonl. Download it, review it (README), upload it back."""
-    print(review_queue_remote.remote(n_each))
+    print(f"[review_queue] Generating {n_each} safety review candidates per category on Modal...")
+    res = review_queue_remote.remote(n_each)
+    print(f"[review_queue] Successfully created review queue at: {res}")
+    return res
 
 
 @app.local_entrypoint()
-def shared_pretrain(tier: str = "500M", budget: str = "4x", tokens: int = 0, confirm_full: bool = False,
-                     mb: int = 0, accum: int = 0, grad_ckpt: int = -1, workers: int = 12):
+def shared_pretrain(tier: str = "3B", budget: str = "4x", tokens: int = 0, confirm_full: bool = False,
+                     mb: int = 0, accum: int = 0, grad_ckpt: int = -1, workers: int = 12, attach: bool = False):
     """budget: chinchilla (20 tokens/param) | 4x (80 tokens/param, default) | full (all 627B SlimPajama tokens).
     mb/accum: override the tier's default micro-batch/grad-accum split (same effective batch if mb*accum matches).
     grad_ckpt: 1 to force gradient checkpointing on, 0 to force it off, -1 (default) to use the tier's setting.
-    workers: DataLoader workers pulling the streamed dataset - raise this first if GPU util is low (see README note).
-    Tune these by watching `nvidia-smi`/Modal's GPU-util metric on a short run BEFORE committing to the full budget -
-    these numbers are not verified against real hardware here."""
+    workers: DataLoader workers pulling the streamed dataset.
+    attach: True to run directly attached in console to see all live step metrics (loss, lr, tok/s)."""
     _spawn("pretrain", tier, budget=budget, tokens=tokens, confirm_full=confirm_full,
-           mb=mb, accum=accum, grad_ckpt=grad_ckpt, workers=workers)
+           mb=mb, accum=accum, grad_ckpt=grad_ckpt, workers=workers, attach=attach)
 
 
 @app.local_entrypoint()
-def shared_sft(tier: str = "500M", tokens: int = 2_000_000_000, mb: int = 0, accum: int = 0,
-                grad_ckpt: int = -1, workers: int = 12):
+def shared_sft(tier: str = "3B", tokens: int = 2_000_000_000, mb: int = 0, accum: int = 0,
+                grad_ckpt: int = -1, workers: int = 12, attach: bool = False):
     """Multi-role SFT on generated, verifier-grounded data. Default 2B tokens; watch held-out loss per role in
     metrics_sft.jsonl and the shared_eval numbers - if they are still rising, run again with more tokens.
-    Writes /vol/Quadmesh-<tier>/live/shared_text.pt."""
-    _spawn("sft", tier, budget="4x", tokens=tokens, mb=mb, accum=accum, grad_ckpt=grad_ckpt, workers=workers)
+    Writes /vol/Quadmesh-<tier>/live/shared_text.pt.
+    attach: True to run directly attached in console to see all live step metrics (loss, lr, tok/s)."""
+    _spawn("sft", tier, budget="4x", tokens=tokens, mb=mb, accum=accum, grad_ckpt=grad_ckpt, workers=workers, attach=attach)
 
 
 @app.local_entrypoint()
-def shared_eval(tier: str = "500M", n: int = 100):
+def shared_eval(tier: str = "3B", n: int = 100):
     import json
     print(json.dumps(shared_eval_remote.remote(tier, n), indent=1))
+

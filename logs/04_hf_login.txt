@@ -1,0 +1,2 @@
+[2026-09-27T20:20:40] PS D:\quadmesh-project\quadmesh_project> huggingface-cli login --token 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
+[2026-09-27T20:20:42] (exit code: 0)

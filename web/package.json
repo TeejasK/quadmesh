@@ -1,0 +1,23 @@
+{
+  "name": "quadmesh-web",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Quadmesh AI — Autonomous 3D CAD Agent with Google Auth and Razorpay Indian Bank Settlement",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.0",
+    "@types/three": "^0.160.0",
+    "typescript": "^5.3.0"
+  }
+}

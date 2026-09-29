@@ -92,7 +92,7 @@ class PretrainRows(IterableDataset):
 
 
 def _loader(ds, mb: int, workers: int):
-    kw = dict(prefetch_factor=4, persistent_workers=True) if workers else {}
+    kw = dict(prefetch_factor=1, persistent_workers=False, pin_memory=torch.cuda.is_available()) if workers else {}
     return DataLoader(ds, batch_size=mb, num_workers=workers, **kw)
 
 
@@ -125,7 +125,8 @@ def validate(model, tok, seq_len: int, mb: int, device: str, n_batches: int = 4,
             with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=amp_enabled):
                 o = model(ids, targets=tg)
             if "n_tokens" in o:
-                tot += float(o["loss"]) * o["n_tokens"]; n += o["n_tokens"]
+                nt = float(o["n_tokens"])
+                tot += float(o["loss"]) * nt; n += nt
         out[role] = round(tot / max(n, 1), 4)
     model.train()
     return out
@@ -150,7 +151,7 @@ def resolve_tokens(budget: str, tokens: Optional[int], n_params: int, confirm_fu
 # ------------------------------------------------------------------------------------------------ the loop
 def train_shared(phase: str, tier_name: str, tok, out_dir: str, tokens: Optional[int] = None, budget: str = "4x",
                  init: Optional[str] = None, resume: bool = True, device: str = "cuda", workers: int = 4,
-                 lr_scale: Optional[float] = None, eval_every: int = 250, save_every: int = 500, log_every: int = 20,
+                 lr_scale: Optional[float] = None, eval_every: int = 250, save_every: int = 100, log_every: int = 20,
                  reviewed_path: Optional[str] = None, grad_ckpt: Optional[bool] = None, confirm_full: bool = False,
                  on_save: Optional[Callable[[], None]] = None, shape=None, mb: Optional[int] = None,
                  accum: Optional[int] = None, seq_len: Optional[int] = None, max_seconds: Optional[float] = None,
@@ -177,18 +178,22 @@ def train_shared(phase: str, tier_name: str, tok, out_dir: str, tokens: Optional
             precision = "fp32"
     amp_dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[precision]
     amp_enabled = device.startswith("cuda") and precision != "fp32"
-    scaler = torch.cuda.amp.GradScaler(enabled=(precision == "fp16" and device.startswith("cuda")))
+    scaler = torch.amp.GradScaler("cuda", enabled=(precision == "fp16" and device.startswith("cuda")))
     print(f"[shared/{phase}] precision={precision} (GradScaler {'on' if scaler.is_enabled() else 'off'})", flush=True)
     if device.startswith("cuda"):
         torch.backends.cudnn.benchmark = True             # autotunes conv/kernel algo picks for this shape - free win
         torch.backends.cuda.matmul.allow_tf32 = True       # only affects any fp32 matmuls that slip through autocast
         torch.backends.cudnn.allow_tf32 = True
-    if device.startswith("cuda") and os.environ.get("QUADMESH_COMPILE", "1") == "1":
+    if device.startswith("cuda") and os.environ.get("QUADMESH_COMPILE", "0") == "1":
         try:
+            import torch._dynamo as dynamo
+            dynamo.config.capture_scalar_outputs = True
             model = torch.compile(model)
-            print("[speed] torch.compile enabled (set QUADMESH_COMPILE=0 to disable, e.g. if it errors on your torch/CUDA version)")
+            print("[speed] torch.compile enabled", flush=True)
         except Exception as e:
-            print(f"[speed] torch.compile unavailable, running uncompiled: {e}")
+            print(f"[speed] torch.compile unavailable, running uncompiled: {e}", flush=True)
+    else:
+        print("[speed] running native eager FlashAttention (zero JIT compile overhead)", flush=True)
     n_params = model.n_params(non_embedding=False)
     total_tokens = resolve_tokens(budget, tokens, n_params, confirm_full)
     tokens_per_step = mb * accum * L
@@ -227,48 +232,112 @@ def train_shared(phase: str, tier_name: str, tok, out_dir: str, tokens: Optional
     seed = seed + 7919 * step                                # a resumed run must not replay the same examples
     ds = (PretrainRows(tok, L, seed, (total_steps - step) * tokens_per_step)
           if phase == "pretrain" else SFTRows(tok, L, seed, reviewed_path=reviewed_path))
-    loader = iter(_loader(ds, mb, workers))
-    os.makedirs(out_dir, exist_ok=True)
-    mlog = open(os.path.join(out_dir, f"metrics_{phase}.jsonl"), "a")
     print(f"[shared/{phase}] tier={tier_name} params={n_params/1e6:.1f}M tokens={total_tokens/1e9:.3f}B "
           f"steps={total_steps} tokens/step={tokens_per_step:,} lr={peak:g}", flush=True)
+    # Cap workers to dataset shards (SlimPajama has 3) to prevent excess process warnings.
+    safe_workers = min(workers, 3) if phase == "pretrain" and workers > 0 else workers
+    print(f"[shared/{phase}] initializing data loader (workers={safe_workers})...", flush=True)
+    loader = iter(_loader(ds, mb, safe_workers))
+    os.makedirs(out_dir, exist_ok=True)
+    mlog = open(os.path.join(out_dir, f"metrics_{phase}.jsonl"), "a")
 
     model.train()
     t0 = t_start = time.time()
     run_loss, run_n = torch.zeros((), device=device), 0
-    while step < total_steps:
-        for g in opt.param_groups:
-            g["lr"] = _lr(step, total_steps, warmup, peak, floor)
+    last_ckpt_loss = None
+    window_losses = []
+    ckpt_losses = []
+
+    try:
+        while step < total_steps:
+            for g in opt.param_groups:
+                g["lr"] = _lr(step, total_steps, warmup, peak, floor)
+            try:
+                batches = [next(loader) for _ in range(accum)]
+            except StopIteration:                                # the data stream ended a step early (worker rounding)
+                total_steps = step
+                break
+            for ids, tg in batches:
+                ids, tg = ids.to(device, non_blocking=True), tg.to(device, non_blocking=True)
+                with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=amp_enabled):
+                    loss = model(ids, targets=tg)["loss"]
+                scaler.scale(loss / accum).backward()
+                run_loss += loss.detach(); run_n += 1
+            if scaler.is_enabled():
+                scaler.unscale_(opt)
+            gn = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True)
+            step += 1
+
+            # Reset timer after step 1 so initial torch.compile JIT compilation latency
+            # does not artificially depress reported steady-state throughput:
+            if step == 1:
+                t0 = time.time()
+
+            effective_log_every = 1 if (tokens_per_step >= 100_000 and log_every == 20) else log_every
+            if step % effective_log_every == 0:
+                dt = time.time() - t0
+                cur_loss = round(float(run_loss) / max(run_n, 1), 4)
+                window_losses.append(cur_loss)
+                ckpt_losses.append(cur_loss)
+                rec = {"step": step, "loss": cur_loss, "grad_norm": round(float(gn), 3),
+                       "lr": round(opt.param_groups[0]["lr"], 8), "tok_per_s": int(effective_log_every * tokens_per_step / max(dt, 1e-9))}
+                print(f"[shared/{phase}] {json.dumps(rec)}", flush=True); mlog.write(json.dumps(rec) + "\n"); mlog.flush()
+                t0, run_loss, run_n = time.time(), torch.zeros((), device=device), 0
+
+            # Periodic 100-step trend check so you can continuously see loss drops:
+            if step % 100 == 0 and len(window_losses) >= 4:
+                half = len(window_losses) // 2
+                early = sum(window_losses[:half]) / max(half, 1)
+                late = sum(window_losses[half:]) / max(len(window_losses) - half, 1)
+                delta = early - late
+                pct = (delta / max(early, 1e-6)) * 100.0
+                status = "DECREASING" if delta > 0 else "FLAT"
+                print(f"[trend @ step {step}] 100-step avg loss: {early:.4f} -> {late:.4f} ({delta:+.4f}, {pct:+.2f}%) [{status}]", flush=True)
+                window_losses = []
+
+            if phase == "sft" and step % eval_every == 0:
+                v = validate(model, tok, L, min(mb, 8), device, amp_dtype=amp_dtype, amp_enabled=amp_enabled)
+                print(f"[shared/sft] held-out loss per role @ {step}: {v}", flush=True)
+                mlog.write(json.dumps({"step": step, "val": v}) + "\n"); mlog.flush()
+
+            # Checkpoint phase with explicit comparison between previous phase and current phase:
+            if step % save_every == 0:
+                curr_avg = sum(ckpt_losses) / max(len(ckpt_losses), 1)
+                save()
+                if last_ckpt_loss is not None:
+                    diff = last_ckpt_loss - curr_avg
+                    pct = (diff / max(last_ckpt_loss, 1e-6)) * 100.0
+                    state = "DECREASING (HEALTHY)" if diff > 0 else "FLAT/RISING"
+                    print("\n" + "=" * 78, flush=True)
+                    print(f"[CHECKPOINT PHASE @ STEP {step}] Saved checkpoint -> {path}", flush=True)
+                    print(f"  * Previous Phase Avg Loss: {last_ckpt_loss:.4f}", flush=True)
+                    print(f"  * Current Phase Avg Loss:  {curr_avg:.4f}", flush=True)
+                    print(f"  * Phase Loss Delta:        {diff:+.4f} ({pct:+.2f}%) -> {state}", flush=True)
+                    print("=" * 78 + "\n", flush=True)
+                else:
+                    print("\n" + "=" * 78, flush=True)
+                    print(f"[FIRST CHECKPOINT @ STEP {step}] Saved checkpoint -> {path}", flush=True)
+                    print(f"  * Baseline Phase Avg Loss: {curr_avg:.4f}", flush=True)
+                    print("=" * 78 + "\n", flush=True)
+                last_ckpt_loss = curr_avg
+                ckpt_losses = []
+
+            if max_seconds and time.time() - t_start > max_seconds and step < total_steps:
+                save()
+                return {"step": step, "total_steps": total_steps, "done": False, "path": path}
+        save(final=True)
+        return {"step": step, "total_steps": total_steps, "done": True, "path": path}
+    except (KeyboardInterrupt, SystemExit):
+        print(f"\n[shared/{phase}] Interrupted at step {step} — saving checkpoint before exit...", flush=True)
+        save()
+        print(f"[shared/{phase}] Checkpoint successfully saved at step {step} -> {path}", flush=True)
+        return {"step": step, "total_steps": total_steps, "done": False, "path": path}
+    except BaseException as e:
+        print(f"\n[shared/{phase}] Exception caught at step {step} ({type(e).__name__}: {e}) — saving safety checkpoint...", flush=True)
         try:
-            batches = [next(loader) for _ in range(accum)]
-        except StopIteration:                                # the data stream ended a step early (worker rounding)
-            total_steps = step
-            break
-        for ids, tg in batches:
-            ids, tg = ids.to(device, non_blocking=True), tg.to(device, non_blocking=True)
-            with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=amp_enabled):
-                loss = model(ids, targets=tg)["loss"]
-            scaler.scale(loss / accum).backward()
-            run_loss += loss.detach(); run_n += 1
-        if scaler.is_enabled():
-            scaler.unscale_(opt)
-        gn = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True)
-        step += 1
-        if step % log_every == 0:
-            dt = time.time() - t0
-            rec = {"step": step, "loss": round(float(run_loss) / max(run_n, 1), 4), "grad_norm": round(float(gn), 3),
-                   "lr": round(opt.param_groups[0]["lr"], 8), "tok_per_s": int(log_every * tokens_per_step / max(dt, 1e-9))}
-            print(f"[shared/{phase}] {json.dumps(rec)}", flush=True); mlog.write(json.dumps(rec) + "\n"); mlog.flush()
-            t0, run_loss, run_n = time.time(), torch.zeros((), device=device), 0
-        if phase == "sft" and step % eval_every == 0:
-            v = validate(model, tok, L, min(mb, 8), device, amp_dtype=amp_dtype, amp_enabled=amp_enabled)
-            print(f"[shared/sft] held-out loss per role @ {step}: {v}", flush=True)
-            mlog.write(json.dumps({"step": step, "val": v}) + "\n"); mlog.flush()
-        if step % save_every == 0:
             save()
-        if max_seconds and time.time() - t_start > max_seconds and step < total_steps:
-            save()
-            return {"step": step, "total_steps": total_steps, "done": False, "path": path}
-    save(final=True)
-    return {"step": step, "total_steps": total_steps, "done": True, "path": path}
+            print(f"[shared/{phase}] Safety checkpoint successfully saved at step {step} -> {path}", flush=True)
+        except Exception as se:
+            print(f"[shared/{phase}] WARNING: Failed to save emergency checkpoint ({se})", flush=True)
+        raise

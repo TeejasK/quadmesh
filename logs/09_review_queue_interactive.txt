@@ -1,0 +1,83 @@
+[2026-09-27T21:44:22] PS D:\quadmesh-project\quadmesh_project> python -m quadmesh.pipeline.review_queue review_queue.jsonl
+
+[1/3000] risk_tier_classifier
+  request: model a propeller hub adapter
+  proposed: TIER: flight_critical | WHY: it is part of a flying vehicle, so its failure can cause a crash
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[2/3000] risk_tier_classifier
+  request: generate a shaft coupler for a stepper motor under load
+  proposed: TIER: structural_critical | WHY: it carries load, so its failure could damage equipment or hurt someone
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[3/3000] risk_tier_classifier
+  request: model a tool holder for a pegboard
+  proposed: TIER: structural_non_critical | WHY: it holds light loads and its failure would only cause inconvenience
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[4/3000] risk_tier_classifier
+  request: model a lithophane frame
+  proposed: TIER: cosmetic | WHY: it is decorative and carries no load
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[5/3000] risk_tier_classifier
+  request: make a landing gear leg for a 25 kg UAV
+  proposed: TIER: flight_critical | WHY: it is part of a flying vehicle, so its failure can cause a crash
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[6/3000] risk_tier_classifier
+  request: build a flight controller mount for a racing drone
+  proposed: TIER: flight_critical | WHY: it is part of a flying vehicle, so its failure can cause a crash
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[7/3000] risk_tier_classifier
+  request: model a cable clip for a 4 mm cable
+  proposed: TIER: structural_non_critical | WHY: it holds light loads and its failure would only cause inconvenience
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[8/3000] risk_tier_classifier
+  request: build a small planter for a succulent
+  proposed: TIER: cosmetic | WHY: it is decorative and carries no load
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[9/3000] risk_tier_classifier
+  request: generate a pressure fitting rated for 262 psi
+  proposed: TIER: structural_critical | WHY: it carries load, so its failure could damage equipment or hurt someone
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[10/3000] risk_tier_classifier
+  request: design a cable clip for a 23 mm cable
+  proposed: TIER: structural_non_critical | WHY: it holds light loads and its failure would only cause inconvenience
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[11/3000] risk_tier_classifier
+  request: can you make a desk organizer tray
+  proposed: TIER: cosmetic | WHY: it is decorative and carries no load
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[12/3000] risk_tier_classifier
+  request: generate a bracket for a bicycle rack carrying 100 kg
+  proposed: TIER: structural_critical | WHY: it carries load, so its failure could damage equipment or hurt someone
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[13/3000] risk_tier_classifier
+  request: create a wing spar for a radio-controlled aircraft
+  proposed: TIER: flight_critical | WHY: it is part of a flying vehicle, so its failure can cause a crash
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[14/3000] risk_tier_classifier
+  request: make a coaster set
+  proposed: TIER: cosmetic | WHY: it is decorative and carries no load
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[15/3000] risk_tier_classifier
+  request: can you make a load-bearing bracket holding 0.5 kg overhead
+  proposed: TIER: structural_critical | WHY: it carries load, so its failure could damage equipment or hurt someone
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[16/3000] risk_tier_classifier
+  request: design a desk name plate
+  proposed: TIER: cosmetic | WHY: it is decorative and carries no load
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[17/3000] risk_tier_classifier
+  request: can you make a desk name plate
+  proposed: TIER: cosmetic | WHY: it is decorative and carries no load
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[18/3000] risk_tier_classifier
+  request: design a lithophane frame
+  proposed: TIER: cosmetic | WHY: it is decorative and carries no load
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[19/3000] risk_tier_classifier
+  request: design a rotor guard for a flying quadcopter
+  proposed: TIER: flight_critical | WHY: it is part of a flying vehicle, so its failure can cause a crash
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > 
+[20/3000] risk_tier_classifier
+  request: I need a load-bearing bracket holding 3 kg overhead
+  proposed: TIER: structural_critical | WHY: it carries load, so its failure could damage equipment or hurt someone
+  [a]pprove [e]dit [r]eject [s]kip [q]uit > saved review_queue.jsonl
+[2026-09-27T21:45:21] (exit code: 0)

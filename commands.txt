@@ -1,41 +1,112 @@
-# Quadmesh - command list (see README.md for explanations). PowerShell.
-# ---- 1. environment
+# ==============================================================================
+# QUADMESH 3B — COMPLETE INDUSTRIAL STEP-BY-STEP COMMANDS (PowerShell)
+# Architecture: Full 3B Shared Backbone + Computer-Use Agent (CUA) Live in Blender
+# Multi-modal input: Text / Voice / Image / 3D CAD files (STL/STEP) -> Real 3D Actions
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# STEP 1: LOCAL ENVIRONMENT SETUP
+# ------------------------------------------------------------------------------
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 pip install -r requirements-local-agent.txt
+
+# Run the 29-check offline test suite (geometry, CSG, Blender bridge, safety):
 python tests\run_offline_tests.py
-# ---- 2. accounts (create a NEW token; never commit it)
-huggingface-cli login
-modal setup
-modal secret create huggingface-secret HF_TOKEN=<YOUR-NEW-TOKEN>
-# ---- 3. train the SHARED GENERATIVE TEXT MODEL (8 roles, one trunk). See SHARED_MODEL.md for cost/time.
-#      Delete any tokenizer built before v2 first (token ids changed):  modal volume rm quadmesh-ckpts /tokenizer/quadmesh-bpe.json
+
+# ------------------------------------------------------------------------------
+# STEP 2: CLOUD AUTHENTICATION (Modal & Hugging Face)
+# ------------------------------------------------------------------------------
+    .\scripts\run_and_log.ps1 -Cmd "huggingface-cli login" -LogFile "logs\\huggingface_login.log"
+    .\scripts\run_and_log.ps1 -Cmd "modal setup" -LogFile "logs\\modal_setup.log"
+    
+# Create HF secret on Modal (replace <HF_TOKEN> with your Hugging Face write/read token):
+modal secret create huggingface-secret HF_TOKEN=<HF_TOKEN>
+
+# NOTE: Make sure to accept the license for Text2CAD on Hugging Face:
+# https://huggingface.co/datasets/SadilKhan/Text2CAD
+
+# ------------------------------------------------------------------------------
+# STEP 3: BUILD TOKENIZER (Optimized with Fallback & Role Conditioning)
+# ------------------------------------------------------------------------------
+# Builds the 32,000 vocab BPE and saves to Modal volume /vol/tokenizer/quadmesh-bpe.json:
 modal run modal_app.py::build_tokenizer
-modal run modal_app.py::shared_review_queue                      # candidate rows for risk/abuse -> /vol/data/review_queue.jsonl
+
+# ------------------------------------------------------------------------------
+# STEP 4: SAFETY & ABUSE REVIEW QUEUE (Interactive)
+# ------------------------------------------------------------------------------
+# Generate review candidates to volume:
+modal run modal_app.py::shared_review_queue
+
+# Download candidate queue:
 modal volume get quadmesh-ckpts /data/review_queue.jsonl review_queue.jsonl
-python -m quadmesh.pipeline.review_queue review_queue.jsonl      # approve/edit rows by hand (need >= 500 per role)
+
+# Review rows locally in terminal (press 'a' to approve, 'r' to reject):
+python -m quadmesh.pipeline.review_queue review_queue.jsonl
+
+# Upload approved rows back to volume:
 modal volume put quadmesh-ckpts review_queue.jsonl /data/review_queue.jsonl --force
-modal run --detach modal_app.py::shared_pretrain --tier 500M --budget 4x     # chinchilla | 4x | full (needs --confirm-full)
-modal run --detach modal_app.py::shared_sft --tier 500M --tokens 2000000000
-modal run modal_app.py::shared_eval --tier 500M --n 100          # generation-based eval + the 20-prompt benchmark
-# (re-run any of the three long commands after a preemption - they resume from the last checkpoint)
-# ---- 3b. separate models that stay separate (different input modality)
-modal volume put quadmesh-ckpts D:\demos /demos
-modal run modal_app.py::train_vla --tier 500M --steps 20000
-modal run modal_app.py::train_io --tier 500M --which asr         # asr / tts as before
-# ---- LEGACY per-role path (superseded by the shared model; kept for the image-chat model and old checkpoints)
-# modal run modal_app.py::plan --tier 500M ; modal run modal_app.py::train_all --tier 500M
-# ---- 4. download
-modal volume get quadmesh-ckpts /Quadmesh-500M D:\quadmesh_ckpt\Quadmesh-500M
+
+# ------------------------------------------------------------------------------
+# STEP 5: FULL PRETRAINING (3B Tier — 4x / 80 tokens per parameter)
+# ------------------------------------------------------------------------------
+# Option A: Run attached in terminal with live step logs (loss, grad_norm, lr, tok/s):
+modal run modal_app.py::shared_pretrain --tier 3B --budget 4x --mb 16 --accum 16 --grad-ckpt 0 --workers 12 --attach
+
+# Option B: Run detached in background (keeps running even if you close the terminal):
+modal run --detach modal_app.py::shared_pretrain --tier 3B --budget 4x --mb 16 --accum 16 --grad-ckpt 0 --workers 12
+
+# Stream live loss metrics to CSV & Markdown table:
+modal run modal_app.py::shared_pretrain --tier 3B --budget 4x --mb 16 --accum 16 --grad-ckpt 0 --workers 12 | .\scripts\parse_loss_log.ps1 -OutPrefix logs\pretrain_3B -Live
+
+# ------------------------------------------------------------------------------
+# STEP 6: FULL INSTRUCTION TUNING (SFT — Multi-Role Verifier-Grounded)
+# ------------------------------------------------------------------------------
+# Multi-role SFT (2B tokens across all 8 roles):
+modal run modal_app.py::shared_sft --tier 3B --tokens 2000000000 --mb 16 --accum 16 --grad-ckpt 0 --workers 12 --attach
+
+# Or run detached:
+modal run --detach modal_app.py::shared_sft --tier 3B --tokens 2000000000 --mb 16 --accum 16 --grad-ckpt 0 --workers 12
+
+# ------------------------------------------------------------------------------
+# STEP 7: VISION-LANGUAGE-ACTION (VLA) & I/O TRAINING (For Direct Blender CUA)
+# ------------------------------------------------------------------------------
+# Train the VLA Computer-Use Agent (GroundCUA + UI + Blender actions):
+modal run modal_app.py::train_vla --tier 3B --steps 20000
+
+# Train Speech Recognition (ASR) & Speech Synthesis (TTS):
+modal run modal_app.py::train_io --tier 3B --which asr
+modal run modal_app.py::train_io --tier 3B --which tts
+
+# ------------------------------------------------------------------------------
+# STEP 8: EVALUATION & BENCHMARKING (Target: Checker pass >= 90%)
+# ------------------------------------------------------------------------------
+modal run modal_app.py::shared_eval --tier 3B --n 100
+
+# ------------------------------------------------------------------------------
+# STEP 9: DOWNLOAD TRAINED CHECKPOINTS TO LOCAL MACHINE
+# ------------------------------------------------------------------------------
+New-Item -ItemType Directory -Force -Path D:\quadmesh_ckpt | Out-Null
+modal volume get quadmesh-ckpts /Quadmesh-3B D:\quadmesh_ckpt\Quadmesh-3B
 modal volume get quadmesh-ckpts /tokenizer D:\quadmesh_ckpt\tokenizer
-$env:QUADMESH_CKPT_ROOT="D:\quadmesh_ckpt"; $env:QUADMESH_TIER="500M"; $env:QUADMESH_DEVICE="auto"
-# ---- 5. run (Blender opens itself)
+
+# Set environment variables for local agent:
+$env:QUADMESH_CKPT_ROOT="D:\quadmesh_ckpt"
+$env:QUADMESH_TIER="3B"
+$env:QUADMESH_DEVICE="auto"
+
+# ------------------------------------------------------------------------------
+# STEP 10: RUN LIVE IN BLENDER (Computer Use Agent — Real-time Action)
+# ------------------------------------------------------------------------------
+# Mode A: Autopilot — Quadmesh launches Blender live, types/executes, validates mesh:
+python -m quadmesh.agent.autopilot "Make a 60x40x5 mm plate with 4 corner holes of 4.2 mm diameter, 8 mm from the edges" --tier 3B --visible
+
+# Mode B: Interactive Chat Agent with Full Control, Voice, Vision & Live Blender actions:
 python -m quadmesh.agent.chat_agent --desk --full-control --voice --speak
-# ---- 5b. OR: web app (Claude-style UI, text/voice/image/3D-file in, opens Blender, trace panel, speaks back)
+
+# Mode C: Web App UI (Voice/Text/File upload + Live Blender Viewport trace):
 pip install uvicorn python-multipart
-python -m quadmesh.webapp.server                       # then open http://127.0.0.1:8420
-python -m quadmesh.agent.autopilot "Make a 60x40x5 mm plate with 4 corner holes of 4.2 mm diameter, 8 mm from the edges" --tier 500M
-python -m quadmesh.agent.autopilot --assembly "make a hexadrone, 1.5 kg, industrial grade" --tier 500M
-# ---- 6. deploy
-modal deploy modal_app.py
+python -m quadmesh.webapp.server
+# Then open http://127.0.0.1:8420 in your browser
+

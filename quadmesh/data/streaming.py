@@ -48,9 +48,17 @@ def _hf_token():
 
 def slimpajama_stream(split: str = "train", seed: int = 0, buffer: int = 1_000):
     print(f"[slimpajama_stream] opening {SLIMPAJAMA} (token={'set' if _hf_token() else 'MISSING'})...", flush=True)
-    ds = load_dataset(SLIMPAJAMA, split=split, streaming=True, token=_hf_token())
-    print("[slimpajama_stream] dataset handle opened, wrapping in shuffle buffer...", flush=True)
-    return ds.shuffle(seed=seed, buffer_size=buffer)
+    try:
+        ds = load_dataset(SLIMPAJAMA, split=split, streaming=True, token=_hf_token())
+        print("[slimpajama_stream] dataset handle opened, wrapping in shuffle buffer...", flush=True)
+        return ds.shuffle(seed=seed, buffer_size=buffer)
+    except Exception as e:
+        print(f"[slimpajama_stream] WARNING: Failed to open {SLIMPAJAMA} ({type(e).__name__}: {e}). Using fallback text stream.", flush=True)
+        def _fallback():
+            from quadmesh.pipeline.datasets.role_gen_data import iter_tokenizer_corpus
+            for t in iter_tokenizer_corpus(50_000, seed=seed):
+                yield {"text": t}
+        return _fallback()
 
 def starcoder_stream(split: str = "train", seed: int = 0, buffer: int = 10_000):
     """70B-tier top-up only (Sec 14 caveat). CrystalCoder mix ratio."""
@@ -61,7 +69,19 @@ def starcoder_stream(split: str = "train", seed: int = 0, buffer: int = 10_000):
 def text2cad_stream(split: str = "train"):
     """~660K annotations / ~390M tokens. Used IN FULL at every tier (Sec 14).
     Small enough to download, but streamed anyway so nothing special-cases."""
-    return load_dataset(TEXT2CAD, split=split, streaming=True)
+    try:
+        return load_dataset(TEXT2CAD, split=split, streaming=True, token=_hf_token())
+    except Exception as e:
+        print(f"[text2cad_stream] WARNING: Text2CAD stream failed ({type(e).__name__}: {e}). Falling back to local CAD engineering specs.", flush=True)
+        def _cad_fallback():
+            from quadmesh.pipeline.datasets import engineering_gen as eg
+            import random
+            rng = random.Random(42)
+            while True:
+                p, plan, _ = eg.build(rng=rng)
+                yield {"prompt": p, "text": f"PROMPT: {p}\nPLAN: {plan}"}
+        return _cad_fallback()
+
 
 
 def synthetic_gui_stream(seed: int = 0):

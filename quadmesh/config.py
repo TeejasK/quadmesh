@@ -139,7 +139,8 @@ TIERS: Dict[str, TierConfig] = {
         multi_gpu=False,
         shape=ModelShape(d_model=768, n_layers=8, n_heads=12, d_ff=3072, max_seq_len=2048),
         vision_shape=ModelShape(d_model=768, n_layers=8, n_heads=12, d_ff=3072, max_seq_len=2048),
-        micro_batch_size=24, grad_accum_steps=8, seq_len=2048,
+        micro_batch_size=16, grad_accum_steps=12, seq_len=2048,
+        gradient_checkpointing=False,
         lr=4e-4, min_lr=4e-5, warmup_steps=200,
         timeout_hours=8, asr_hours=200, tts_hours=24.0,
     ),
@@ -171,14 +172,13 @@ TIERS: Dict[str, TierConfig] = {
         multi_gpu=False,
         shape=ModelShape(d_model=1024, n_layers=26, n_heads=16, d_ff=4096, max_seq_len=2048),
         vision_shape=ModelShape(d_model=1024, n_layers=26, n_heads=16, d_ff=4096, max_seq_len=2048),
-        micro_batch_size=16, grad_accum_steps=16, seq_len=2048,      # was mb=8/accum=32 — same effective
-                                                                       # batch (256), fewer accum steps, better
-                                                                       # H100 utilization given the memory headroom
-                                                                       # at this tier (~36GB static vs 80GB)
+        micro_batch_size=8, grad_accum_steps=32, seq_len=2048,       # effective batch = 8x32 = 256 (unchanged);
+                                                                        # mb=8 halves peak activation memory so the
+                                                                        # 3B model fits comfortably on one 80GB H100
         lr=2.5e-4, min_lr=2.5e-5, warmup_steps=1000,
-        gradient_checkpointing=False,      # off by default: 3B has ~50GB headroom on an 80GB H100 for full FT
-                                            # (see mb/accum note above); override with --grad_ckpt 1 on the CLI
-                                            # if you push batch size further and hit OOM
+        gradient_checkpointing=True,       # required for 3B on a single 80GB H100; recomputes activations
+                                            # during backward (bit-identical gradients, ~15% slower wall-clock,
+                                            # ~30GB VRAM saved). Disable with --grad-ckpt 0 on multi-GPU setups
         timeout_hours=24, asr_hours=800, tts_hours=24.0,
     ),
 

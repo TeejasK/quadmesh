@@ -1,0 +1,33 @@
+[2026-09-27T19:01:12] PS D:\quadmesh-project\quadmesh_project> python tests\run_offline_tests.py
+PASS  plan checker + part-family generator (3000 examples all valid)                                            3000/3000 valid
+PASS  family count >= 10,000                                                                                    12339 families over 80 body types
+PASS  checker catches corrupted plans (>= 90%)                                                                  823/891
+PASS  any-angle rotation + circular array                                                                       
+PASS  Spec Generator data round-trips; hostile output rejected                                                  
+PASS  assemblies: 300 random specs, every part plan valid                                                       
+PASS  printability gate flags every bad mesh, passes a good one                                                 
+PASS  action-safety filter refuses dangerous keys by default                                                    
+PASS  GUI recipes: emulated S/G arithmetic gives exact sizes                                                    
+PASS  image -> outline tracer (rectangle with a hole)                                                           
+PASS  per-role sizes: weights sum to 1, chat/planner/spec/vla/asr/tts get more than an equal split              
+PASS  autopilot end to end against a fake Blender (build -> check -> export -> verify file)                     
+PASS  geometry3d: extrude/lathe/loft/sweep/thread/gear/text all watertight with correct volumes                 
+PASS  mechanisms: gear pair meshes correctly, four-bar analysis matches Grashof's rule                          
+PASS  photo-to-3D: symmetric object -> lathe, asymmetric -> inflate, both watertight                            
+PASS  chat data generator produces only validated tool calls                                                    
+PASS  chat knowledge base answers on-topic questions, stays silent on unrelated ones                            
+PASS  chat agent: (legacy) rule fallback, tool execution, file reading, photo-to-3D, full-control toggle        
+PASS  TTS vocoder: mel of a known tone reconstructs to (approximately) that frequency                           
+PASS  TTS pitch-shift style: verified frequency shift in both directions                                        
+PASS  STEP round trip (CadQuery): plan -> STEP -> re-read, volume matches (skips if cadquery not installed)     
+PASS  Blender launcher: finds the newest installed version, never double-launches, fails clearly if absent      
+PASS  full-control mode: unlocks restricted keys, allows mouse strokes, stays off by default                    
+PASS  mesh_tools schema validation rejects everything outside its declared ranges                               
+PASS  chat tool-call data: every number in a make_shape call comes from its request                             1147 calls, 0 contradictions
+PASS  role data: auditor label == the plan checker's verdict; every role parses back; train/eval keys disjoint  720 examples across 6 roles
+PASS  legacy rule-based planner is OFF by default (no silent fallback)                                          
+PASS  SharedTextModel trains NEXT-token prediction (random tokens stay at ln V) and generates                   final loss 4.79 vs ln V 4.79
+PASS  tokenizer: every role tag is one token; runtime routes all roles through one model                        
+
+29/29 checks passed
+[2026-09-27T19:02:23] (exit code: 0)

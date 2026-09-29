@@ -65,9 +65,9 @@ class QuadmeshTokenizer:
         return cls(tk)
 
     @classmethod
-    def build_corpus_file(cls, corpus_path: str, n_cad: int = 10_000,
-                          n_docs: int = 35_000, n_role_docs: int = 12_000,
-                          seed: int = 0, commit_every: int = 2000, commit_fn=None) -> str:
+    def build_corpus_file(cls, corpus_path: str, n_cad: int = 5_000,
+                          n_docs: int = 15_000, n_role_docs: int = 12_000,
+                          seed: int = 0, commit_every: int = 1000, commit_fn=None) -> str:
         """Streams the corpus ONCE and writes it to a plain-text file (one doc per line), resuming from
         wherever it left off if a previous attempt was preempted partway through. This is the slow,
         network-bound step; keeping it separate from BPE training means a preemption during BPE merges

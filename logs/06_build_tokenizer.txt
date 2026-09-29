@@ -1,0 +1,75 @@
+[2026-09-27T20:48:59] PS D:\quadmesh-project\quadmesh_project> modal run modal_app.py::build_tokenizer
+✓ Initialized. View run at 
+https://modal.com/apps/kteejas21/main/ap-sg8eahhWJ7rut86LZm0mWn
+✓ Created objects.
+├── 🔨 Created mount D:\quadmesh-project\quadmesh_project\modal_app.py
+├── 🔨 Created mount PythonPackage:quadmesh
+├── 🔨 Created function build_tokenizer.
+├── 🔨 Created function train_100M.
+├── 🔨 Created function train_500M.
+├── 🔨 Created function train_1B.
+├── 🔨 Created function train_3B.
+├── 🔨 Created function train_7B.
+├── 🔨 Created function train_io_model.
+├── 🔨 Created function stage3_100M.
+├── 🔨 Created function stage3_500M.
+├── 🔨 Created function stage3_1B.
+├── 🔨 Created function stage3_3B.
+├── 🔨 Created function stage3_7B.
+├── 🔨 Created function stage4_100M.
+├── 🔨 Created function stage4_500M.
+├── 🔨 Created function stage4_1B.
+├── 🔨 Created function stage4_3B.
+├── 🔨 Created function stage4_7B.
+├── 🔨 Created function stage5_100M.
+├── 🔨 Created function stage5_500M.
+├── 🔨 Created function stage5_1B.
+├── 🔨 Created function stage5_3B.
+├── 🔨 Created function stage5_7B.
+├── 🔨 Created function stage6_100M.
+├── 🔨 Created function stage6_500M.
+├── 🔨 Created function stage6_1B.
+├── 🔨 Created function stage6_3B.
+├── 🔨 Created function stage6_7B.
+├── 🔨 Created function stage7_100M.
+├── 🔨 Created function stage7_500M.
+├── 🔨 Created function stage7_1B.
+├── 🔨 Created function stage7_3B.
+├── 🔨 Created function stage7_7B.
+├── 🔨 Created function stage8_100M.
+├── 🔨 Created function stage8_500M.
+├── 🔨 Created function stage8_1B.
+├── 🔨 Created function stage8_3B.
+├── 🔨 Created function stage8_7B.
+├── 🔨 Created web function web => 
+│   https://kteejas21--quadmesh-web-dev.modal.run
+├── 🔨 Created function _check_ckpt_remote.
+├── 🔨 Created function train_vla_fn.
+├── 🔨 Created function review_queue_remote.
+├── 🔨 Created function shared_train_remote.
+└── 🔨 Created function shared_eval_remote.
+[tokenizer] Resuming corpus build: 29,000 docs already on disk.
+[tokenizer] Streaming SlimPajama docs (16,000 remaining)...
+[slimpajama_stream] opening gmongaras/SlimPajama-627B_Reupload (token=set)...
+[slimpajama_stream] dataset handle opened, wrapping in shuffle buffer...
+[tokenizer] SlimPajama total 20,000/35,000...
+[tokenizer] SlimPajama total 22,000/35,000...
+[tokenizer] SlimPajama total 24,000/35,000...
+[tokenizer] SlimPajama total 26,000/35,000...
+[tokenizer] SlimPajama total 28,000/35,000...
+[tokenizer] SlimPajama total 30,000/35,000...
+[tokenizer] SlimPajama total 32,000/35,000...
+[tokenizer] SlimPajama total 34,000/35,000...
+[tokenizer] SlimPajama stream done (35,000 docs).
+[tokenizer] Added 12,600 generated role documents.
+[tokenizer] Corpus complete: 57,600 docs written to /vol/tokenizer/_corpus.txt.
+[tokenizer] Calculating BPE merges from cached corpus file...
+
+
+
+[tokenizer] Training complete! Vocab size: 32,000
+vocab: 32000
+Stopping app - local entrypoint completed.
+✓ App completed. View run at 
+https://modal.com/apps/kteejas21/main/ap-sg8eahhWJ7rut86LZm0mWn
+[2026-09-27T21:14:42] (exit code: 0)

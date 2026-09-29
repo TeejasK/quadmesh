@@ -117,19 +117,22 @@ class SharedTextModel(nn.Module):
 
     def forward(self, idx, targets=None, cache=None, last_only: bool = False, return_logits: bool = False):
         x = self.backbone(idx, cache=cache, last_only=last_only)
-        out = {"confidence": torch.sigmoid(self.confidence_head(x[:, -1])).squeeze(-1)}
+        out = {}
         if targets is None:
             out["logits"] = self.lm_head(x)
+            out["confidence"] = torch.sigmoid(self.confidence_head(x[:, -1])).squeeze(-1)
             return out
         h, y = x[:, :-1], targets[:, 1:]
         keep = y != -100
-        if not bool(keep.any()):
-            out["loss"] = x.sum() * 0.0
-            return out
-        # logits only where there is a label: for SFT that is the answer tokens, a small fraction of the batch
-        logits = self.lm_head(h[keep])
-        out["loss"] = F.cross_entropy(logits.float(), y[keep])
-        out["n_tokens"] = int(keep.sum())
+        # Fast static path when all tokens are targets (standard pretrain):
+        if bool(keep.all()):
+            logits = self.lm_head(h)
+            out["loss"] = F.cross_entropy(logits.view(-1, logits.size(-1)), y.reshape(-1))
+            out["n_tokens"] = keep.sum()
+        else:
+            logits = self.lm_head(h[keep])
+            out["loss"] = F.cross_entropy(logits, y[keep])
+            out["n_tokens"] = keep.sum()
         if return_logits:
             out["logits"] = logits
         return out

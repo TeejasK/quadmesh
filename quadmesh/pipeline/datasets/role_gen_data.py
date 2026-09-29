@@ -218,9 +218,12 @@ _TIER_TEXT = {
 def risk_candidate() -> dict:
     tier = random.choice(RISK_TIERS)
     templates, why = _TIER_TEXT[tier]
-    t = random.choice(templates).format(w=random.choice([40, 60, 80]), d=random.choice([30, 50]), h=random.choice([15, 25]),
-                                        c=random.choice([4, 6, 8]), m=random.choice([0.5, 1, 2, 5, 10]), p=random.choice([50, 100, 200]))
-    req = random.choice(["make ", "design ", "I need ", "build ", "generate "]) + t
+    t = random.choice(templates).format(
+        w=random.randint(10, 200), d=random.randint(10, 200), h=random.randint(5, 100),
+        c=random.randint(2, 30), m=random.choice([0.1, 0.25, 0.5, 1, 2, 3, 5, 8, 10, 15, 20, 25, 50, 100]),
+        p=random.randint(15, 600)
+    )
+    req = random.choice(["make ", "design ", "I need ", "build ", "generate ", "create ", "can you make ", "model "]) + t
     return {"role": "risk_tier_classifier", "prompt": req, "answer": f"TIER: {tier}\nWHY: {why}",
             "label_source": "taxonomy_v1", "reviewed": False}
 
@@ -255,14 +258,17 @@ def write_review_queue(path: str, n_each: int = 1500, seed: int = 0) -> str:
     random.seed(seed)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     seen = set()
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         for maker in (risk_candidate, abuse_candidate):
             k = 0
-            while k < n_each:
+            attempts = 0
+            while k < n_each and attempts < n_each * 10:
+                attempts += 1
                 r = maker()
                 if r["prompt"] in seen:
                     continue
-                seen.add(r["prompt"]); k += 1
+                seen.add(r["prompt"])
+                k += 1
                 f.write(json.dumps(r) + "\n")
     return path
 

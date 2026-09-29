@@ -1,0 +1,69 @@
+[2026-09-27T23:14:20] PS D:\quadmesh-project\quadmesh_project> modal run modal_app.py::shared_pretrain --tier 3B --budget 4x --mb 8 --accum 32 --grad-ckpt 1 --workers 3 --attach
+✓ Initialized. View run at 
+https://modal.com/apps/kteejas21/main/ap-FPCnuEhhiMIvbZ3TbAKKCC
+✓ Created objects.
+├── 🔨 Created mount D:\quadmesh-project\quadmesh_project\modal_app.py
+├── 🔨 Created mount PythonPackage:quadmesh
+├── 🔨 Created function build_tokenizer.
+├── 🔨 Created function train_100M.
+├── 🔨 Created function train_500M.
+├── 🔨 Created function train_1B.
+├── 🔨 Created function train_3B.
+├── 🔨 Created function train_7B.
+├── 🔨 Created function train_io_model.
+├── 🔨 Created function stage3_100M.
+├── 🔨 Created function stage3_500M.
+├── 🔨 Created function stage3_1B.
+├── 🔨 Created function stage3_3B.
+├── 🔨 Created function stage3_7B.
+├── 🔨 Created function stage4_100M.
+├── 🔨 Created function stage4_500M.
+├── 🔨 Created function stage4_1B.
+├── 🔨 Created function stage4_3B.
+├── 🔨 Created function stage4_7B.
+├── 🔨 Created function stage5_100M.
+├── 🔨 Created function stage5_500M.
+├── 🔨 Created function stage5_1B.
+├── 🔨 Created function stage5_3B.
+├── 🔨 Created function stage5_7B.
+├── 🔨 Created function stage6_100M.
+├── 🔨 Created function stage6_500M.
+├── 🔨 Created function stage6_1B.
+├── 🔨 Created function stage6_3B.
+├── 🔨 Created function stage6_7B.
+├── 🔨 Created function stage7_100M.
+├── 🔨 Created function stage7_500M.
+├── 🔨 Created function stage7_1B.
+├── 🔨 Created function stage7_3B.
+├── 🔨 Created function stage7_7B.
+├── 🔨 Created function stage8_100M.
+├── 🔨 Created function stage8_500M.
+├── 🔨 Created function stage8_1B.
+├── 🔨 Created function stage8_3B.
+├── 🔨 Created function stage8_7B.
+├── 🔨 Created web function web => 
+│   https://kteejas21--quadmesh-web-dev.modal.run
+├── 🔨 Created function _check_ckpt_remote.
+├── 🔨 Created function train_vla_fn.
+├── 🔨 Created function review_queue_remote.
+├── 🔨 Created function shared_train_remote.
+└── 🔨 Created function shared_eval_remote.
+Running pretrain for 3B attached to terminal with live streaming output...
+Traceback (most recent call last):
+  File "/pkg/modal/_runtime/container_io_manager.py", line 987, in handle_input_exception
+    yield
+  File "/pkg/modal/_container_entrypoint.py", line 189, in run_input_sync
+    values = io_context.call_function_sync()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/pkg/modal/_runtime/container_io_manager.py", line 266, in call_function_sync
+    expected_value_or_values = self.finalized_function.callable(*args, **kwargs)
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/modal_app.py", line 696, in shared_train_remote
+    res = train_shared(
+          ^^^^^^^^^^^^^
+  File "/root/quadmesh/train/shared_text_train.py", line 173, in train_shared
+    if device.startswith("cuda") and torch.cuda.is_bf16_supported():
+                                     ^^^^^
+UnboundLocalError: cannot access local variable 'torch' where it is not associated with a value
+Stopping app - uncaught exception raised locally: UnboundLocalError("cannot access local variable 'torch' where it is not associated with a value").
+[2026-09-27T23:15:09] (exit code: 1)
